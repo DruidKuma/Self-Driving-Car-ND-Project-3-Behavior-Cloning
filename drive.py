@@ -2,6 +2,11 @@ import argparse
 import base64
 import json
 
+from datetime import datetime
+
+import os
+import shutil
+
 import numpy as np
 import socketio
 import eventlet
@@ -39,16 +44,20 @@ def telemetry(sid, data):
     transformed_image_array = image_array[None, :, :, :]
     
     # preprocessing
-    
     resized = ( cv2.resize((cv2.cvtColor(transformed_image_array[0], cv2.COLOR_RGB2HSV))[:,:,1],(32,16))).reshape(1,16,32,1)
    
-    
     # This model currently assumes that the features of the model are just the images. Feel free to change this.
     steering_angle = float(model.predict(resized, batch_size=1))
     # The driving model currently just outputs a constant throttle. Feel free to edit this.
     throttle = 0.2
     print(steering_angle, throttle)
     send_control(steering_angle, throttle)
+
+    # save frame
+    if args.image_folder != '':
+        timestamp = datetime.utcnow().strftime('%Y_%m_%d_%H_%M_%S_%f')[:-3]
+        image_filename = os.path.join(args.image_folder, timestamp)
+        image.save('{}.jpg'.format(image_filename))
 
 
 @sio.on('connect')
@@ -68,6 +77,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Remote Driving')
     parser.add_argument('model', type=str,
     help='Path to model definition json. Model weights should be on the same path.')
+
+    parser.add_argument(
+        'image_folder',type=str, nargs='?', default='',
+        help='Path to image folder. This is where the images from the run will be saved.')
+
     args = parser.parse_args()
     
     
@@ -77,6 +91,17 @@ if __name__ == '__main__':
     model.compile("adam", "mse")
     weights_file = args.model.replace('json', 'h5')
     model.load_weights(weights_file)
+
+    if args.image_folder != '':
+        print("Creating image folder at {}".format(args.image_folder))
+        if not os.path.exists(args.image_folder):
+            os.makedirs(args.image_folder)
+        else:
+            shutil.rmtree(args.image_folder)
+            os.makedirs(args.image_folder)
+        print("RECORDING THIS RUN ...")
+    else:
+        print("NOT RECORDING THIS RUN ...")
 
     # wrap Flask application with engineio's middleware
     app = socketio.Middleware(sio, app)
